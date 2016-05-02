@@ -1,5 +1,9 @@
 # pystam
 
+pystam is python package for estimating statistical models. It contains a model class and statistical estimation procedures. Statistical models can be easily represented using the model class by defining the log_obs_dens abstract 
+method which calculates the log density of an observation.
+
+A small example how to use the package:
 ```python
 import numpy as np
 from scipy.stats import norm
