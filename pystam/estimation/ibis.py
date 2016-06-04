@@ -234,4 +234,133 @@ class IBIS():
             if(self.ess[t]<self.num_param/2):
                 accept=self.resample_move(y[0:(t+1)],z[0:(t+1)])
                 self.acceptance_rate[t]=np.mean(accept)   
+
+class IBISDynamic():
+    '''
+    Iterated bach importance sampling procedure \n 
+    ------------------------------------------- \n
+    Inputs: \n
+    num_param - number of \theta particles \n
+    data - data class \n 
+    model - model class \n 
+    param - param class  \n
+    ------------------------------------------ \n
+    Results
+    '''
     
+    def __init__(self, num_param, model, prior,resampling=systemic_resampling,proposal=independent_proposal):
+        
+        self.num_param=num_param        
+        
+        self.model=model
+        self.prior=prior
+        self.resampling=resampling
+        self.proposal=proposal
+                
+        self.log_obs=np.zeros(num_param)
+        self.param_log_w=np.zeros(num_param)
+        self.param_log_likelihood=np.zeros(num_param)
+        self.param_norm_w=np.zeros(num_param)
+        
+        self.param=self.prior.sample_prior(num_param)
+        self.dim_param=np.shape(self.param)[1] 
+        
+       
+        
+
+    def resample_move(self,y,z):
+        print 'Resample move step'
+        ''' Resample '''
+        param_cum_w=np.cumsum(self.param_norm_w,axis=0)
+        index=self.resampling(param_cum_w)
+        self.param=self.param[index]
+        self.state=self.state[index]
+        self.param_log_likelihood=self.param_log_likelihood[index]
+        self.param_log_w=np.zeros(self.num_param)
+        ''' Move '''
+        ''' Proposal '''        
+        param_new, log_proposal, log_proposal_new=self.proposal(self.param, self.prior)
+        ''' Calculate prior '''
+        log_prior=self.prior.log_prior(self.param)
+        log_prior_new=self.prior.log_prior(param_new)
+
+        
+    
+        ''' Calculate likelihood '''                            
+        param_log_likelihood_new,state_new=self.model.log_likelihood(param_new, y, z)          
+        param_log_likelihood_new=np.where(np.isnan(param_log_likelihood_new)==0, param_log_likelihood_new, -np.Inf)
+
+         
+        ''' Accept reject '''
+        accept=np.zeros(self.num_param)
+        log_u=np.log(np.random.uniform(0,1,self.num_param)) 
+        for i in range(0,self.num_param):
+            ''' Calculate acceptenc probability '''
+            log_prob=(param_log_likelihood_new[i]+log_prior_new[i]-log_proposal_new[i])-(self.param_log_likelihood[i]+log_prior[i]-log_proposal[i])
+            log_prob=min(log_prob,1)
+            if(log_u[i] <log_prob):
+                self.param[i]=param_new[i]
+                self.state[i]=state_new[i]
+                self.param_log_likelihood[i]=param_log_likelihood_new[i]
+                accept[i]=1
+        return accept  
+        
+    def update(self,y,z):
+        
+        
+        ''' Update weights '''
+        log_obs=self.model.log_obs_dens(self.param,self.state,  y, z)
+        log_obs=np.where(np.isnan(log_obs) == 0, log_obs, -np.Inf)
+        self.param_log_w=self.param_log_w+log_obs
+        self.param_log_likelihood=self.param_log_likelihood+log_obs
+        
+        ''' Update state '''
+        self.state=self.model.state_transition(self.param,self.state,y,z)        
+        
+        ''' Calculate normalized weights '''
+        self.param_norm_w=np.exp(self.param_log_w-np.amax(self.param_log_w,0))/np.sum(np.exp(self.param_log_w-np.amax(self.param_log_w,0)),0)
+        
+        
+
+        
+
+    def estimate(self, y, z):
+        num_y=np.shape(y)[0]
+        num_z=np.shape(y)[0]
+        
+        self.high=np.zeros((num_y,self.dim_param))
+        self.low=np.zeros((num_y,self.dim_param))
+        self.median=np.zeros((num_y,self.dim_param))
+        self.ess=np.zeros(num_y)
+        self.acceptance_rate=np.zeros(num_y) 
+        self.marginal_log_likelihood=np.zeros(num_y) 
+        
+        self.state=self.model.initial_state(self.param)
+        
+        if(num_y!=num_z):
+            raise ValueError('Number of row in y ({}) and z ({}) has to be equal'.format(num_y,num_z))
+   
+        
+        for t in range(0,num_y):
+            ''' Update parameters '''
+            self.update(y[t],z[t])
+
+            ''' Store stuff '''
+            self.ess[t]=1/np.sum(np.power(self.param_norm_w,2))        
+            self.high[t,:]=weighted_percentile(self.param,self.param_norm_w,97.5)   
+            self.low[t,:]=weighted_percentile(self.param,self.param_norm_w,2.5)  
+            self.median[t,:]=weighted_percentile(self.param,self.param_norm_w,50)
+            if(t==0):
+                self.marginal_log_likelihood[t]=np.inner(self.log_obs,self.param_norm_w)
+            else:
+                self.marginal_log_likelihood[t]=self.marginal_log_likelihood[t-1]+np.inner(self.log_obs,self.param_norm_w)
+            self.acceptance_rate[t]=np.nan
+            print('=============================')
+            print('low {} '.format(self.low[t]))
+            print('median {} '.format(self.median[t]))
+            print('high {} '.format(self.high[t]))
+            ''' Resample move  if necessary '''     
+            if(self.ess[t]<self.num_param/2):
+                accept=self.resample_move(y[0:(t+1)],z[0:(t+1)])
+                self.acceptance_rate[t]=np.mean(accept)   
+        

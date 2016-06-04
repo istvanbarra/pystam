@@ -7,7 +7,7 @@ Created on Sun Apr 24 11:36:57 2016
 
 import numpy as np
 from abc import ABCMeta, abstractmethod
-from scipy.stats import norm
+from scipy.stats import norm,lognorm,dirichlet,uniform
 
 
 class Prior:
@@ -127,7 +127,42 @@ class NormalPrior(Prior):
     def sample_prior(self,num_param): 
         param_trans=norm.rvs(size=(num_param,self.dim_param))
         return self.transform_back_param(param_trans)
+    
+class GARCHPrior(Prior):
+    def log_prior(self,param):
+        log_p=np.log(lognorm.pdf(param[:,0],1,scale=0.02))
+        ab=np.concatenate((param[:,1:3],np.zeros((len(param),1))),axis=1)        
+        ab[:,2]=np.ones(len(param))-np.sum(param[:,1:3],axis=1)
+#        print('ab {}'.format(ab))      
+#        print('dirichlet {}'.format(dirichlet.pdf(ab[0],[4,9,3])))        
+#        print('dirichlet all {}'.format(dirichlet.pdf(np.transpose(ab),[4,9,3])))
+        log_dirichlet=np.zeros(len(param))
+        for i in range(0,len(param)):
+            if(np.all(ab[i]>0)):
+                log_dirichlet[i]=dirichlet.pdf(ab[i],[3,54,3])
+            else:
+                log_dirichlet[i]=-np.Inf
+#        log_p=log_p+np.log(dirichlet.pdf(np.transpose(ab),[4,9,3]))
+        log_p=log_p+log_dirichlet 
+        return log_p      
         
+    def sample_prior(self,num_param):
+        const=lognorm.rvs(1,scale=0.02, size=(num_param,1))        
+        ab=dirichlet.rvs([3,54,3], size=num_param)
+
+        return np.concatenate((const,ab[:,0:2]),axis=1)
+        
+class GARCHUniformPrior(Prior):
+    def log_prior(self,param):
+        log_p=np.zeros(len(param))        
+        return log_p
+    def sample_prior(self,num_param):  
+        const=uniform.rvs(loc=0.001,scale=0.1,size=(num_param,1))
+        a=uniform.rvs(loc=0.01,scale=0.5,size=(num_param,1))
+        b=uniform.rvs(loc=0.5,scale=0.45,size=(num_param,1))
+        return np.concatenate((const,a,b),axis=1) 
+    
+
 if __name__ == "__main__":
     '''
     Testing the Prior class
@@ -158,4 +193,14 @@ if __name__ == "__main__":
   
     print('test log_prior: {}'.format(normal_prior.log_prior(par)))
     print('test sample_prior: {}'.format(normal_prior.sample_prior(10)))
+
+    import matplotlib.pyplot as plt   
+    rest=['pos' , 'pos', '01']
+    garch_prior=GARCHPrior(rest)
+    param=garch_prior.sample_prior(1000)
+    print('param sample {}'.format(param))
+    print('GARCH log prior {} '.format(garch_prior.log_prior(param)))
+    plt.plot(param[:,1],param[:,2], 'bo')
+    plt.show()
     
+    print('dirichlet {}'.format(dirichlet.pdf([0.2,0.4,0.4],[4,9,3]))) 
