@@ -55,8 +55,20 @@ def independent_proposal(param,prior):
     param_new=prior.transform_back_param(param_trans_new)
 
     ''' Calculate proposal '''     
-    log_proposal_dens=log_multi_norm(param_trans, mean_trans,var_trans)
-    log_proposal_dens_new=log_multi_norm(param_trans_new, mean_trans,var_trans)    
+    try:
+        log_proposal_dens=log_multi_norm(param_trans, mean_trans,var_trans)
+        log_proposal_dens_new=log_multi_norm(param_trans_new, mean_trans,var_trans)    
+    except ValueError:
+        try:
+            var_trans=np.diag(np.var(param_trans,axis=0))
+            print(var_trans)    
+            log_proposal_dens=log_multi_norm(param_trans, mean_trans,var_trans)
+            log_proposal_dens_new=log_multi_norm(param_trans_new, mean_trans,var_trans)    
+        except ValueError:
+            var_trans=np.eye(num_param)
+            print(var_trans)
+            log_proposal_dens=log_multi_norm(param_trans, mean_trans,var_trans)
+            log_proposal_dens_new=log_multi_norm(param_trans_new, mean_trans,var_trans)    
 
     return param_new, log_proposal_dens, log_proposal_dens_new
     
@@ -150,7 +162,7 @@ class IBIS():
         
 
     def resample_move(self,y,z):
-        print 'Resample move step'
+        print('====== ! Resample Move ! =======')
         ''' Resample '''
         param_cum_w=np.cumsum(self.param_norm_w,axis=0)
         index=self.resampling(param_cum_w)
@@ -206,7 +218,7 @@ class IBIS():
         
         self.high=np.zeros((num_y,self.dim_param))
         self.low=np.zeros((num_y,self.dim_param))
-        self.median=np.zeros((num_y,self.dim_param))
+        self.mean=np.zeros((num_y,self.dim_param))
         self.ess=np.zeros(num_y)
         self.acceptance_rate=np.zeros(num_y) 
         self.marginal_log_likelihood=np.zeros(num_y) 
@@ -216,21 +228,23 @@ class IBIS():
             raise ValueError('Number of row in y ({}) and z ({}) has to be equal'.format(num_y,num_z))
    
         for t in range(0,num_y):
-            ''' Update parameters '''
+            
+            print('======= observation {} ======='.format(t+1))
+            # Update parameters 
             self.update(y[t],z[t])
 
-            ''' Store stuff '''
+            # Store stuff 
             self.ess[t]=1/np.sum(np.power(self.param_norm_w,2))        
             self.high[t,:]=weighted_percentile(self.param,self.param_norm_w,97.5)   
             self.low[t,:]=weighted_percentile(self.param,self.param_norm_w,2.5)  
-            self.median[t,:]=weighted_percentile(self.param,self.param_norm_w,50)
+            self.mean[t,:]=np.inner(np.transpose(self.param),self.param_norm_w) 
             if(t==0):
                 self.marginal_log_likelihood[t]=np.inner(self.log_obs,self.param_norm_w)
             else:
                 self.marginal_log_likelihood[t]=self.marginal_log_likelihood[t-1]+np.inner(self.log_obs,self.param_norm_w)
             self.acceptance_rate[t]=np.nan
             
-            ''' Resample move  if necessary '''     
+            # Resample move  if necessary      
             if(self.ess[t]<self.num_param/2):
                 accept=self.resample_move(y[0:(t+1)],z[0:(t+1)])
                 self.acceptance_rate[t]=np.mean(accept)   
@@ -269,7 +283,7 @@ class IBISDynamic():
         
 
     def resample_move(self,y,z):
-        print 'Resample move step'
+        print('Resample move step')
         ''' Resample '''
         param_cum_w=np.cumsum(self.param_norm_w,axis=0)
         index=self.resampling(param_cum_w)

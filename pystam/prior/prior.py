@@ -118,14 +118,19 @@ class Prior:
         
         
 class NormalPrior(Prior):
+    def __init__(self,restriction,mu=0,sigma=1):
+        Prior.__init__(self,restriction)
+        self.mu=mu
+        self.sigma=sigma
+    
     def log_prior(self,param):
         param_trans=self.transform_param(param)
 #        print('param_trans {}'.format(param_trans))
 #        print('log normal pdf {}'.format(norm.logpdf(param_trans)))
-        return np.sum(norm.logpdf(param_trans),axis=1)
+        return np.sum(norm.logpdf(param_trans,loc=self.mu, scale=self.sigma),axis=1)
 
     def sample_prior(self,num_param): 
-        param_trans=norm.rvs(size=(num_param,self.dim_param))
+        param_trans=norm.rvs(loc=self.mu, scale=self.sigma,size=(num_param,self.dim_param))
         return self.transform_back_param(param_trans)
     
 class GARCHPrior(Prior):
