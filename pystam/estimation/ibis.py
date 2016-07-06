@@ -13,7 +13,7 @@ def norm_pdf_multivariate(x, mu, sigma):
     if size == len(mu) and (size, size) == np.shape(sigma):
         det = np.linalg.det(sigma)
         if det == 0:
-            raise NameError("The covariance matrix can't be singular")
+            raise ValueError("The covariance matrix can't be singular")
 
         norm_const = 1.0/ ( math.pow((2*np.pi),float(size)/2) * math.pow(det,1.0/2) )
         x_mu = np.matrix(x - mu)
@@ -47,26 +47,36 @@ def independent_proposal(param,prior):
     '''
     
     num_param=np.shape(param)[0]
+    dim_param=np.shape(param)[1]
     ''' Construct proposal '''
     param_trans=prior.transform_param(param)
     mean_trans=np.mean(param_trans,0)
-    var_trans=np.cov(param_trans, y=None,rowvar=0)
-    param_trans_new= np.random.multivariate_normal(mean_trans,var_trans,num_param)
-    param_new=prior.transform_back_param(param_trans_new)
+    var_trans=np.cov(param_trans, y=None,rowvar=0) 
 
-    ''' Calculate proposal '''     
+    ''' Calculate proposal ''' 
+#    print(var_trans)
+#    param_trans_new= np.random.multivariate_normal(mean_trans,var_trans,num_param)
+#    param_new=prior.transform_back_param(param_trans_new
+#    log_proposal_dens=log_multi_norm(param_trans, mean_trans,var_trans)
+#    log_proposal_dens_new=log_multi_norm(param_trans_new, mean_trans,var_trans)   
     try:
+        param_trans_new= np.random.multivariate_normal(mean_trans,var_trans,num_param)
+        param_new=prior.transform_back_param(param_trans_new)
         log_proposal_dens=log_multi_norm(param_trans, mean_trans,var_trans)
         log_proposal_dens_new=log_multi_norm(param_trans_new, mean_trans,var_trans)    
     except ValueError:
         try:
             var_trans=np.diag(np.var(param_trans,axis=0))
             print(var_trans)    
+            param_trans_new= np.random.multivariate_normal(mean_trans,var_trans,num_param)
+            param_new=prior.transform_back_param(param_trans_new)
             log_proposal_dens=log_multi_norm(param_trans, mean_trans,var_trans)
             log_proposal_dens_new=log_multi_norm(param_trans_new, mean_trans,var_trans)    
         except ValueError:
-            var_trans=np.eye(num_param)
+            var_trans=np.eye(dim_param)
             print(var_trans)
+            param_trans_new= np.random.multivariate_normal(mean_trans,var_trans,num_param)
+            param_new=prior.transform_back_param(param_trans_new)
             log_proposal_dens=log_multi_norm(param_trans, mean_trans,var_trans)
             log_proposal_dens_new=log_multi_norm(param_trans_new, mean_trans,var_trans)    
 
@@ -162,7 +172,7 @@ class IBIS():
         
 
     def resample_move(self,y,z):
-        print('====== ! Resample Move ! =======')
+        print('======= resample move =======')
         ''' Resample '''
         param_cum_w=np.cumsum(self.param_norm_w,axis=0)
         index=self.resampling(param_cum_w)
@@ -219,6 +229,7 @@ class IBIS():
         self.high=np.zeros((num_y,self.dim_param))
         self.low=np.zeros((num_y,self.dim_param))
         self.mean=np.zeros((num_y,self.dim_param))
+        self.median=np.zeros((num_y,self.dim_param))
         self.ess=np.zeros(num_y)
         self.acceptance_rate=np.zeros(num_y) 
         self.marginal_log_likelihood=np.zeros(num_y) 
@@ -229,21 +240,22 @@ class IBIS():
    
         for t in range(0,num_y):
             
-            print('======= observation {} ======='.format(t+1))
+           
             # Update parameters 
             self.update(y[t],z[t])
 
             # Store stuff 
             self.ess[t]=1/np.sum(np.power(self.param_norm_w,2))        
             self.high[t,:]=weighted_percentile(self.param,self.param_norm_w,97.5)   
-            self.low[t,:]=weighted_percentile(self.param,self.param_norm_w,2.5)  
-            self.mean[t,:]=np.inner(np.transpose(self.param),self.param_norm_w) 
+            self.low[t,:]=weighted_percentile(self.param,self.param_norm_w,2.5) 
+            self.mean[t,:]=np.average(self.param, axis=0, weights=self.param_norm_w)
+            self.median[t,:]=weighted_percentile(self.param,self.param_norm_w,50)
             if(t==0):
                 self.marginal_log_likelihood[t]=np.inner(self.log_obs,self.param_norm_w)
             else:
                 self.marginal_log_likelihood[t]=self.marginal_log_likelihood[t-1]+np.inner(self.log_obs,self.param_norm_w)
             self.acceptance_rate[t]=np.nan
-            
+            print('======= observation {} ESS {:.0f} ======='.format(t+1,self.ess[t]))
             # Resample move  if necessary      
             if(self.ess[t]<self.num_param/2):
                 accept=self.resample_move(y[0:(t+1)],z[0:(t+1)])
@@ -334,10 +346,6 @@ class IBISDynamic():
         ''' Calculate normalized weights '''
         self.param_norm_w=np.exp(self.param_log_w-np.amax(self.param_log_w,0))/np.sum(np.exp(self.param_log_w-np.amax(self.param_log_w,0)),0)
         
-        
-
-        
-
     def estimate(self, y, z):
         num_y=np.shape(y)[0]
         num_z=np.shape(y)[0]
